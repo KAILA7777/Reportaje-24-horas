@@ -190,13 +190,30 @@ input {
 .story-progress__fill {
   height: 100%;
   width: 0%;
-  background: #25d366;
+  background-image: linear-gradient(135deg, rgba(255,255,255,0.18) 25%, rgba(255,255,255,0.06) 50%, rgba(255,255,255,0.18) 75%), linear-gradient(90deg, #25d366 0%, #25d366 100%);
+  background-size: 40px 100%, 100% 100%;
+  background-position: 200% 0, 0 0;
   transition: width 3s linear;
 }
 
-.story-progress__fill.active,
+.story-progress__fill.active {
+  width: 100%;
+  animation: progress-stripes 3s linear forwards;
+}
+
 .story-progress__fill.done {
   width: 100%;
+  animation: none;
+  background-position: 0 0, 0 0;
+}
+
+@keyframes progress-stripes {
+  from {
+    background-position: 200% 0, 0 0;
+  }
+  to {
+    background-position: 0 0, 0 0;
+  }
 }
 
 .story-viewer__header {
