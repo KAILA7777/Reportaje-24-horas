@@ -204,11 +204,7 @@ function Home() {
     <div className="home-page">
       <header className="home-header">
         <div>
-          <p className="eyebrow">Cliente</p>
-          <h1>Historias de 24 horas</h1>
-          <p className="subtitle">
-            Sube una imagen, guárdala en tu dispositivo y compártela como una historia efímera.
-          </p>
+          <h1 className="home-title">Historias</h1>
         </div>
       </header>
 
