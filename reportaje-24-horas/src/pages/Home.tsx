@@ -1,4 +1,4 @@
-import { useEffect, useState, type ChangeEvent, type FormEvent } from "react";
+import { useEffect, useRef, useState, type ChangeEvent } from "react";
 import StoryCard from "../components/StoryCard";
 import { initialStories } from "../data";
 import type { Story } from "../types/story";
@@ -6,8 +6,8 @@ import type { Story } from "../types/story";
 const STORAGE_KEY = "stories-24h";
 const STORY_TTL_MS = 24 * 60 * 60 * 1000;
 const STORY_VIEW_DURATION_MS = 4000;
-
-type ComposerMode = "text" | "video" | null;
+const MAX_WIDTH = 1080;
+const MAX_HEIGHT = 1920;
 
 function isStoryActive(story: Story, now = new Date()) {
   return new Date(story.createdAt).getTime() + STORY_TTL_MS > now.getTime();
@@ -35,14 +35,11 @@ function Home() {
       return normalizeStories(initialStories);
     }
   });
-  const [username, setUsername] = useState("");
-  const [caption, setCaption] = useState("");
-  const [mediaPreview, setMediaPreview] = useState("");
-  const [mediaType, setMediaType] = useState<"image" | "video">("image");
   const [selectedStoryIndex, setSelectedStoryIndex] = useState<number | null>(null);
   const [storyProgressKey, setStoryProgressKey] = useState(0);
-  const [showComposerMenu, setShowComposerMenu] = useState(false);
-  const [composerMode, setComposerMode] = useState<ComposerMode>(null);
+  const [isUploading, setIsUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const touchStartX = useRef<number | null>(null);
 
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -82,61 +79,72 @@ function Home() {
     return () => window.clearTimeout(timer);
   }, [selectedStoryIndex, stories.length]);
 
-  function handleMediaChange(event: ChangeEvent<HTMLInputElement>) {
+  function resizeImageToBase64(file: File) {
+    return new Promise<string>((resolve, reject) => {
+      const image = new Image();
+      const objectUrl = URL.createObjectURL(file);
+
+      image.onload = () => {
+        URL.revokeObjectURL(objectUrl);
+
+        const scale = Math.min(1, MAX_WIDTH / image.naturalWidth, MAX_HEIGHT / image.naturalHeight);
+        const width = Math.max(1, Math.round(image.naturalWidth * scale));
+        const height = Math.max(1, Math.round(image.naturalHeight * scale));
+
+        const canvas = document.createElement("canvas");
+        canvas.width = width;
+        canvas.height = height;
+
+        const context = canvas.getContext("2d");
+        if (!context) {
+          reject(new Error("No se pudo preparar la imagen"));
+          return;
+        }
+
+        context.drawImage(image, 0, 0, width, height);
+        resolve(canvas.toDataURL(file.type || "image/jpeg", 0.9));
+      };
+
+      image.onerror = () => {
+        URL.revokeObjectURL(objectUrl);
+        reject(new Error("No se pudo leer la imagen"));
+      };
+
+      image.src = objectUrl;
+    });
+  }
+
+  async function handleFileChange(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     if (!file) {
-      setMediaPreview("");
-      setMediaType("image");
       return;
     }
 
-    const isVideo = file.type.startsWith("video/");
-    setMediaType(isVideo ? "video" : "image");
-
-    if (isVideo) {
-      setMediaPreview(URL.createObjectURL(file));
+    if (!file.type.startsWith("image/")) {
       return;
     }
 
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      setMediaPreview(typeof reader.result === "string" ? reader.result : "");
-    };
-    reader.readAsDataURL(file);
-  }
+    setIsUploading(true);
 
-  function resetComposer() {
-    setUsername("");
-    setCaption("");
-    setMediaPreview("");
-    setMediaType("image");
-    setComposerMode(null);
-    setShowComposerMenu(false);
-  }
+    try {
+      const base64Image = await resizeImageToBase64(file);
+      const newStory: Story = {
+        id: crypto.randomUUID(),
+        username: "Tú",
+        image: base64Image,
+        caption: "Nueva historia",
+        createdAt: new Date().toISOString(),
+      };
 
-  function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-
-    if (!username.trim() || (!caption.trim() && !mediaPreview)) {
-      return;
+      setStories((current) => [newStory, ...current]);
+      setSelectedStoryIndex(0);
+      setStoryProgressKey((current) => current + 1);
+    } catch {
+      setIsUploading(false);
+    } finally {
+      setIsUploading(false);
+      event.target.value = "";
     }
-
-    const placeholderImage = `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(
-      `<svg xmlns="http://www.w3.org/2000/svg" width="600" height="800"><rect width="100%" height="100%" fill="#128c7e"/><circle cx="300" cy="260" r="96" fill="#25d366"/><rect x="118" y="420" width="364" height="140" rx="24" fill="white" opacity="0.2"/><text x="300" y="500" text-anchor="middle" fill="white" font-size="34" font-family="Arial">${caption.trim() || "Nueva historia"}</text></svg>`,
-    )}`;
-
-    const newStory: Story = {
-      id: crypto.randomUUID(),
-      username: username.trim(),
-      image: mediaPreview || placeholderImage,
-      caption: caption.trim(),
-      mediaType: mediaPreview && mediaType === "video" ? "video" : "image",
-      createdAt: new Date().toISOString(),
-    };
-
-    setStories((current) => [newStory, ...current]);
-    resetComposer();
-    event.currentTarget.reset();
   }
 
   const selectedStory = selectedStoryIndex === null ? null : stories[selectedStoryIndex] ?? null;
@@ -172,9 +180,24 @@ function Home() {
     setStoryProgressKey((current) => current + 1);
   }
 
-  function openComposer(mode: "text" | "video") {
-    setComposerMode(mode);
-    setShowComposerMenu(false);
+  function handleTouchStart(event: React.TouchEvent<HTMLDivElement>) {
+    touchStartX.current = event.touches[0]?.clientX ?? null;
+  }
+
+  function handleTouchEnd(event: React.TouchEvent<HTMLDivElement>) {
+    const start = touchStartX.current;
+    const end = event.changedTouches[0]?.clientX ?? null;
+    if (start === null || end === null) {
+      return;
+    }
+
+    const delta = start - end;
+    if (delta > 50) {
+      goToNextStory();
+    } else if (delta < -50) {
+      goToPreviousStory();
+    }
+    touchStartX.current = null;
   }
 
   return (
@@ -184,98 +207,47 @@ function Home() {
           <p className="eyebrow">Cliente</p>
           <h1>Historias de 24 horas</h1>
           <p className="subtitle">
-            Sube historias como en WhatsApp y ellas expiran automáticamente después de un día.
+            Sube una imagen, guárdala en tu dispositivo y compártela como una historia efímera.
           </p>
         </div>
       </header>
 
       <section className="stories-section">
         <div className="stories-section__top">
-          <h2>Historias activas</h2>
-          <span>{stories.length} en vivo</span>
+          <h2>Historias</h2>
+          <span>{stories.length} activas</span>
         </div>
 
-        {stories.length === 0 ? (
-          <p className="empty-state">No hay historias activas en este momento.</p>
-        ) : (
-          <div className="stories-container">
-            {stories.map((story, index) => (
-              <StoryCard key={story.id} story={story} onOpen={() => openStory(index)} />
-            ))}
-          </div>
-        )}
+        <div className="stories-list">
+          <button type="button" className="story-upload" onClick={() => fileInputRef.current?.click()}>
+            <span>+</span>
+            <small>Agregar</small>
+          </button>
+
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            className="sr-only"
+            onChange={handleFileChange}
+          />
+
+          {stories.map((story, index) => (
+            <StoryCard key={story.id} story={story} onOpen={() => openStory(index)} />
+          ))}
+        </div>
+
+        {isUploading ? <p className="uploading-state">Procesando imagen…</p> : null}
       </section>
-
-      <div className="composer-shell">
-        <button
-          type="button"
-          className="wa-fab"
-          onClick={() => setShowComposerMenu((current) => !current)}
-          aria-label="Abrir opciones de historia"
-        >
-          +
-        </button>
-
-        {showComposerMenu ? (
-          <div className="wa-menu">
-            <button type="button" className="wa-menu__button" onClick={() => openComposer("video")}>
-              🎥 Subir video
-            </button>
-            <button type="button" className="wa-menu__button" onClick={() => openComposer("text")}>
-              💬 Texto
-            </button>
-          </div>
-        ) : null}
-      </div>
-
-      {composerMode ? (
-        <div className="composer-modal" role="dialog" aria-modal="true">
-          <div className="composer-card">
-            <div className="composer-card__header">
-              <div>
-                <p className="eyebrow">Nueva historia</p>
-                <h3>{composerMode === "video" ? "Subir video" : "Escribir texto"}</h3>
-              </div>
-              <button type="button" className="composer-card__close" onClick={resetComposer}>
-                ✕
-              </button>
-            </div>
-
-            <form className="story-form" onSubmit={handleSubmit}>
-              <input
-                type="text"
-                placeholder="Tu nombre"
-                value={username}
-                onChange={(event) => setUsername(event.target.value)}
-                required
-              />
-              <textarea
-                placeholder={composerMode === "video" ? "Añade un mensaje a tu video" : "Escribe un mensaje para tu historia"}
-                value={caption}
-                onChange={(event) => setCaption(event.target.value)}
-              />
-
-              {composerMode === "video" ? (
-                <input type="file" accept="video/*,image/*" onChange={handleMediaChange} />
-              ) : null}
-
-              {mediaPreview ? (
-                mediaType === "video" ? (
-                  <video className="preview-media" controls src={mediaPreview} />
-                ) : (
-                  <img className="preview-image" src={mediaPreview} alt="Vista previa de la historia" />
-                )
-              ) : null}
-
-              <button type="submit">{composerMode === "video" ? "Publicar video" : "Publicar texto"}</button>
-            </form>
-          </div>
-        </div>
-      ) : null}
 
       {selectedStory ? (
         <div className="story-viewer" onClick={closeStory}>
-          <div className="story-viewer__content" onClick={(event) => event.stopPropagation()}>
+          <div
+            className="story-viewer__content"
+            onClick={(event) => event.stopPropagation()}
+            onTouchStart={handleTouchStart}
+            onTouchEnd={handleTouchEnd}
+          >
             <div className="story-progress" key={storyProgressKey}>
               {stories.map((story, index) => {
                 const isCurrent = index === selectedStoryIndex;
@@ -301,11 +273,7 @@ function Home() {
               </button>
             </div>
 
-            {selectedStory.mediaType === "video" ? (
-              <video className="story-viewer__media" controls src={selectedStory.image} />
-            ) : (
-              <img src={selectedStory.image} alt={selectedStory.username} />
-            )}
+            <img src={selectedStory.image} alt={selectedStory.username} />
             <div className="story-viewer__body">
               <p>{selectedStory.caption || "Sin texto"}</p>
             </div>
