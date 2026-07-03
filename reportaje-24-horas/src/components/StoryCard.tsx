@@ -1,23 +1,17 @@
-function StoryCard() {
-  return (
-    <div>
-      <p>Mi Historia</p>
-    </div>
-  );
-}
-
-export default StoryCard;
+import type { Story } from "../types/story";
 
 interface Props {
-  username: string;
-  }
+  story: Story;
+  onOpen: () => void;
+}
 
-  function StoryCard({ username }: Props) {
+function StoryCard({ story, onOpen }: Props) {
   return (
-    <div className="story-card">
-      <div className="avatar"></div>
-      <p>{username}</p>
-    </div>
+    <button className="story-card" type="button" onClick={onOpen}>
+      <img className="story-card__image" src={story.image} alt={story.username} />
+      <p>{story.username}</p>
+    </button>
   );
 }
+
 export default StoryCard;
