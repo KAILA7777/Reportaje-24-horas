@@ -3,5 +3,6 @@ export interface Story {
   username: string;
   image: string;
   caption?: string;
+  mediaType?: "image" | "video";
   createdAt: string;
 }

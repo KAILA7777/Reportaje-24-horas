@@ -7,6 +7,8 @@ const STORAGE_KEY = "stories-24h";
 const STORY_TTL_MS = 24 * 60 * 60 * 1000;
 const STORY_VIEW_DURATION_MS = 4000;
 
+type ComposerMode = "text" | "video" | null;
+
 function isStoryActive(story: Story, now = new Date()) {
   return new Date(story.createdAt).getTime() + STORY_TTL_MS > now.getTime();
 }
@@ -35,9 +37,12 @@ function Home() {
   });
   const [username, setUsername] = useState("");
   const [caption, setCaption] = useState("");
-  const [imagePreview, setImagePreview] = useState("");
+  const [mediaPreview, setMediaPreview] = useState("");
+  const [mediaType, setMediaType] = useState<"image" | "video">("image");
   const [selectedStoryIndex, setSelectedStoryIndex] = useState<number | null>(null);
   const [storyProgressKey, setStoryProgressKey] = useState(0);
+  const [showComposerMenu, setShowComposerMenu] = useState(false);
+  const [composerMode, setComposerMode] = useState<ComposerMode>(null);
 
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -75,41 +80,62 @@ function Home() {
     }, STORY_VIEW_DURATION_MS);
 
     return () => window.clearTimeout(timer);
-  }, [selectedStoryIndex, stories.length, stories]);
+  }, [selectedStoryIndex, stories.length]);
 
-  function handleImageChange(event: ChangeEvent<HTMLInputElement>) {
+  function handleMediaChange(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     if (!file) {
-      setImagePreview("");
+      setMediaPreview("");
+      setMediaType("image");
+      return;
+    }
+
+    const isVideo = file.type.startsWith("video/");
+    setMediaType(isVideo ? "video" : "image");
+
+    if (isVideo) {
+      setMediaPreview(URL.createObjectURL(file));
       return;
     }
 
     const reader = new FileReader();
     reader.onloadend = () => {
-      setImagePreview(typeof reader.result === "string" ? reader.result : "");
+      setMediaPreview(typeof reader.result === "string" ? reader.result : "");
     };
     reader.readAsDataURL(file);
+  }
+
+  function resetComposer() {
+    setUsername("");
+    setCaption("");
+    setMediaPreview("");
+    setMediaType("image");
+    setComposerMode(null);
+    setShowComposerMenu(false);
   }
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    if (!username.trim() || !imagePreview) {
+    if (!username.trim() || (!caption.trim() && !mediaPreview)) {
       return;
     }
+
+    const placeholderImage = `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(
+      `<svg xmlns="http://www.w3.org/2000/svg" width="600" height="800"><rect width="100%" height="100%" fill="#128c7e"/><circle cx="300" cy="260" r="96" fill="#25d366"/><rect x="118" y="420" width="364" height="140" rx="24" fill="white" opacity="0.2"/><text x="300" y="500" text-anchor="middle" fill="white" font-size="34" font-family="Arial">${caption.trim() || "Nueva historia"}</text></svg>`,
+    )}`;
 
     const newStory: Story = {
       id: crypto.randomUUID(),
       username: username.trim(),
-      image: imagePreview,
+      image: mediaPreview || placeholderImage,
       caption: caption.trim(),
+      mediaType: mediaPreview && mediaType === "video" ? "video" : "image",
       createdAt: new Date().toISOString(),
     };
 
     setStories((current) => [newStory, ...current]);
-    setUsername("");
-    setCaption("");
-    setImagePreview("");
+    resetComposer();
     event.currentTarget.reset();
   }
 
@@ -146,6 +172,11 @@ function Home() {
     setStoryProgressKey((current) => current + 1);
   }
 
+  function openComposer(mode: "text" | "video") {
+    setComposerMode(mode);
+    setShowComposerMenu(false);
+  }
+
   return (
     <div className="home-page">
       <header className="home-header">
@@ -153,36 +184,16 @@ function Home() {
           <p className="eyebrow">Cliente</p>
           <h1>Historias de 24 horas</h1>
           <p className="subtitle">
-            Sube historias como en Instagram o WhatsApp y ellas expiran automáticamente después de un día.
+            Sube historias como en WhatsApp y ellas expiran automáticamente después de un día.
           </p>
         </div>
       </header>
 
-      <form className="story-form" onSubmit={handleSubmit}>
-        <h2>Crear una historia</h2>
-        <input
-          type="text"
-          placeholder="Tu nombre"
-          value={username}
-          onChange={(event) => setUsername(event.target.value)}
-          required
-        />
-        <textarea
-          placeholder="Escribe un mensaje para tu historia"
-          value={caption}
-          onChange={(event) => setCaption(event.target.value)}
-        />
-        <input type="file" accept="image/*" onChange={handleImageChange} />
-
-        {imagePreview ? (
-          <img className="preview-image" src={imagePreview} alt="Vista previa de la historia" />
-        ) : null}
-
-        <button type="submit">Publicar historia</button>
-      </form>
-
       <section className="stories-section">
-        <h2>Historias activas</h2>
+        <div className="stories-section__top">
+          <h2>Historias activas</h2>
+          <span>{stories.length} en vivo</span>
+        </div>
 
         {stories.length === 0 ? (
           <p className="empty-state">No hay historias activas en este momento.</p>
@@ -194,6 +205,73 @@ function Home() {
           </div>
         )}
       </section>
+
+      <div className="composer-shell">
+        <button
+          type="button"
+          className="wa-fab"
+          onClick={() => setShowComposerMenu((current) => !current)}
+          aria-label="Abrir opciones de historia"
+        >
+          +
+        </button>
+
+        {showComposerMenu ? (
+          <div className="wa-menu">
+            <button type="button" className="wa-menu__button" onClick={() => openComposer("video")}>
+              🎥 Subir video
+            </button>
+            <button type="button" className="wa-menu__button" onClick={() => openComposer("text")}>
+              💬 Texto
+            </button>
+          </div>
+        ) : null}
+      </div>
+
+      {composerMode ? (
+        <div className="composer-modal" role="dialog" aria-modal="true">
+          <div className="composer-card">
+            <div className="composer-card__header">
+              <div>
+                <p className="eyebrow">Nueva historia</p>
+                <h3>{composerMode === "video" ? "Subir video" : "Escribir texto"}</h3>
+              </div>
+              <button type="button" className="composer-card__close" onClick={resetComposer}>
+                ✕
+              </button>
+            </div>
+
+            <form className="story-form" onSubmit={handleSubmit}>
+              <input
+                type="text"
+                placeholder="Tu nombre"
+                value={username}
+                onChange={(event) => setUsername(event.target.value)}
+                required
+              />
+              <textarea
+                placeholder={composerMode === "video" ? "Añade un mensaje a tu video" : "Escribe un mensaje para tu historia"}
+                value={caption}
+                onChange={(event) => setCaption(event.target.value)}
+              />
+
+              {composerMode === "video" ? (
+                <input type="file" accept="video/*,image/*" onChange={handleMediaChange} />
+              ) : null}
+
+              {mediaPreview ? (
+                mediaType === "video" ? (
+                  <video className="preview-media" controls src={mediaPreview} />
+                ) : (
+                  <img className="preview-image" src={mediaPreview} alt="Vista previa de la historia" />
+                )
+              ) : null}
+
+              <button type="submit">{composerMode === "video" ? "Publicar video" : "Publicar texto"}</button>
+            </form>
+          </div>
+        </div>
+      ) : null}
 
       {selectedStory ? (
         <div className="story-viewer" onClick={closeStory}>
@@ -223,7 +301,11 @@ function Home() {
               </button>
             </div>
 
-            <img src={selectedStory.image} alt={selectedStory.username} />
+            {selectedStory.mediaType === "video" ? (
+              <video className="story-viewer__media" controls src={selectedStory.image} />
+            ) : (
+              <img src={selectedStory.image} alt={selectedStory.username} />
+            )}
             <div className="story-viewer__body">
               <p>{selectedStory.caption || "Sin texto"}</p>
             </div>
