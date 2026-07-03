@@ -184,7 +184,7 @@ input {
   height: 100%;
   width: 0%;
   background: #25d366;
-  transition: width 4s linear;
+  transition: width 3s linear;
 }
 
 .story-progress__fill.active,

@@ -5,7 +5,7 @@ import type { Story } from "../types/story";
 
 const STORAGE_KEY = "stories-24h";
 const STORY_TTL_MS = 24 * 60 * 60 * 1000;
-const STORY_VIEW_DURATION_MS = 4000;
+const STORY_VIEW_DURATION_MS = 3000;
 const MAX_WIDTH = 1080;
 const MAX_HEIGHT = 1920;
 
